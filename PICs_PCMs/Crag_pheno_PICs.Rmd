@@ -1,0 +1,739 @@
+---
+title: "Crag_pheno_match"
+author: "Me"
+date: "1/18/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+rm(list=ls())
+
+```{r}
+#load necassary libraries, need bioconductor installed
+library(ape)
+library(phytools)
+library(geiger)
+#library(OUwie)
+```
+
+```{r}
+#read in initial phylogeny from MrBayes and parse data 
+cragphy<-read.tree("Crangonyctidae_13.nex")  
+cragdat<-read.table("matched.txt", header=T)
+tmp<-treedata(cragphy, cragdat, sort=T) # useful function in geiger that creates an object with the overlapping taxa in the tree and the dataset
+tr<-tmp[[1]]
+dat<-tmp[[2]]
+plot(cragphy)
+
+#write.tree(tr, file = "species_mito.tre")
+plot(tr)
+
+#phylogenetic signal 
+phytools::phylosig(tr, dat[,1], method="lambda")
+phytools::phylosig(tr, dat[,3], method="lambda")
+phytools::phylosig(tr, dat[,4], method="lambda")
+phytools::phylosig(tr, dat[,5], method="lambda")
+```
+
+```{r}
+#phylogenetic regressions and model selection
+
+library(phylolm)
+
+BM_means=phylolm(dat[,1]~dat[,4], phy=tr, model="BM")
+#summary(BM_means)
+BM_CVs=phylolm(dat[,3]~dat[,6], phy=tr, model="BM")
+summary(BM_CVs)
+
+OU_means=phylolm(dat[,1]~dat[,4], phy=tr, model="OUrandomRoot")
+#summary(OU_means)
+OU_CVs=phylolm(dat[,3]~dat[,6], phy=tr, model="OUrandomRoot")
+summary(OU_CVs)
+
+mod1 = lm(dat[,3]~dat[,6])
+summary(mod1)
+
+library(MuMIn)
+model.sel(BM_means, OU_means, mod1)
+model.sel(BM_CVs, OU_CVs)
+#qqnorm(mod1$residuals)
+#qqnorm(mod2$residuals)
+```
+
+
+```{r}
+# We will first use the node height test on independent contrasts to determine if the rate of photophobia is speeding up or slowing down over time 
+
+# First estimate the log of female length at sexual maturity (1st column) and log body mass (2nd column) 
+
+#logflsm<-log10(dat[,2])
+behCV = dat[,3]
+beh =  dat[,1]
+
+#logmass<-log10(dat[,1])
+respCV = dat[,6]
+resp = dat[,4]
+
+picbehavCV<-pic(behCV, tr)
+picrespCV<-pic(respCV, tr)
+
+picbehav<-pic(beh, tr)
+picresp<-pic(resp, tr)
+
+plot(picbehav, picresp)
+plot(beh ~ resp, cragdat)
+
+plot(picbehavCV, picrespCV)
+plot(beh_CV ~ resp_CV, cragdat)
+```
+
+```{r}
+#Now run a regression through the origin for the contrasts (signs of contrasts are arbitrary therefore regression needs to be through the origin)
+
+picCV<-lm(picbehavCV ~ 0 + picrespCV)
+pic<-lm(picbehav ~ 0 + picresp)
+summary(picCV)
+summary(pic)
+```
+
+```{r}
+behCV.NH<-nh.test(tr, behCV, regression.type="lm", show.plot=TRUE) # the other option is a robust regression, which can be very useful see Slater & Pennell 2013 syst. biol.
+behCV.NH
+```
+
+######## Model fitting ########
+```{r}
+# We will now use model-fitting to determine if photophobia is best fit by a Brownian motion model, a model that allows the rate to speed up or slow down over time or a non-phylogenetic white noise model that assumes a single normal distribution of the data with no phylogenetic covariance amongst species. We will use the fitContinuous function in geiger for these models and AIC to identify the best-fitting model. When using the Akaike Information Criterion (corrected for small sample size AICc) the rule of thumb is a difference between the best fitting model (the lowest AICc score) which is referred to as the deltaAIc of 2 or more suggest some support for one model over another and >10 is substantial support. 
+
+behCV.BM<-fitContinuous(tr, behCV, model="BM")
+behCV.WN<-fitContinuous(tr, behCV, model="white")
+behCV.EB<-fitContinuous(tr, behCV, model="EB") 
+
+# We can compare these models most easily using AIC (or the small-sample corrected AICc). AIC is an 'information criterion' that weights the fit of the model against the number of parameters in the model to help us measure the strength of evidence for each model. Lower AIC values indicate better evidence for a given model. We can also compute the AIC-weights - which essentially standardizes the AIC scores of fitted alternative models to measure the relative weight of evidence for each model in our data.
+
+aic.vals<-setNames(c(behCV.BM$opt$aicc, behCV.WN$opt$aicc, behCV.EB$opt$aicc),
+    c("BM","WN","EB"))
+lnL.vals<-setNames(c(behCV.BM$opt$lnL, behCV.WN$opt$lnL, behCV.EB$opt$lnL),
+    c("BM","WN","EB"))
+lnL.vals
+aic.vals
+aic.w(aic.vals)
+
+
+#Brownian is the winner!!!
+```
+
+```{r}
+beh.BM<-fitContinuous(tr, beh, model="BM")
+beh.WN<-fitContinuous(tr, beh, model="white")
+beh.EB<-fitContinuous(tr, beh, model="EB") 
+
+lnL.vals<-setNames(c(beh.BM$opt$lnL, beh.WN$opt$lnL, beh.EB$opt$lnL),
+    c("BM","WN","EB"))
+lnL.vals
+
+aic.vals<-setNames(c(beh.BM$opt$aicc, beh.WN$opt$aicc, beh.EB$opt$aicc),
+    c("BM","WN","EB"))
+aic.vals
+aic.w(aic.vals)
+
+#white noise is the winner!!!
+```
+
+```{r}
+respCV.BM<-fitContinuous(tr, respCV, model="BM")
+respCV.WN<-fitContinuous(tr, respCV, model="white")
+respCV.EB<-fitContinuous(tr, respCV, model="EB") 
+
+lnL.vals<-setNames(c(respCV.BM$opt$lnL, respCV.WN$opt$lnL, respCV.EB$opt$lnL),
+    c("BM","WN","EB"))
+lnL.vals
+
+aic.vals<-setNames(c(respCV.BM$opt$aicc, respCV.WN$opt$aicc, respCV.EB$opt$aicc),
+    c("BM","WN","EB"))
+aic.vals
+aic.w(aic.vals)
+
+#white noise is the winner!!!
+```
+
+```{r}
+resp.BM<-fitContinuous(tr, resp, model="BM")
+resp.WN<-fitContinuous(tr, resp, model="white")
+resp.EB<-fitContinuous(tr, resp, model="EB") 
+
+lnL.vals<-setNames(c(resp.BM$opt$lnL, resp.WN$opt$lnL, resp.EB$opt$lnL),
+    c("BM","WN","EB"))
+lnL.vals
+
+aic.vals<-setNames(c(resp.BM$opt$aicc, resp.WN$opt$aicc, resp.EB$opt$aicc),
+    c("BM","WN","EB"))
+aic.vals
+aic.w(aic.vals)
+
+#white noise is the winner!!!
+```
+
+######## Repeated with ultrametric tree #########
+
+```{r}
+# make ultrametric tree 
+cragphy<-read.tree("Crangonyctidae_13.nex")  
+cragdat<-read.table("matched.txt", header=T)
+ultraphy = force.ultrametric(cragphy, method=c("nnls","extend"))
+tmp<-treedata(ultraphy, cragdat, sort=T) # useful function in geiger that creates an object with the overlapping taxa in the tree and the dataset
+tr<-tmp[[1]]
+dat<-tmp[[2]]
+```
+
+```{r}
+behCV.BM<-fitContinuous(tr, behCV, model="BM")
+behCV.WN<-fitContinuous(tr, behCV, model="white")
+behCV.EB<-fitContinuous(tr, behCV, model="EB") 
+
+aic.vals<-setNames(c(behCV.BM$opt$aicc, behCV.WN$opt$aicc, behCV.EB$opt$aicc),
+    c("BM","WN","EB"))
+aic.vals
+aic.w(aic.vals)
+
+#Brownian is the winner!!!
+```
+
+
+```{r}
+beh.BM<-fitContinuous(tr, beh, model="BM")
+beh.WN<-fitContinuous(tr, beh, model="white")
+beh.EB<-fitContinuous(tr, beh, model="EB") 
+
+aic.vals<-setNames(c(beh.BM$opt$aicc, beh.WN$opt$aicc, beh.EB$opt$aicc),
+    c("BM","WN","EB"))
+aic.vals
+aic.w(aic.vals)
+
+#white noise is the winner!!!
+```
+
+```{r}
+respCV.BM<-fitContinuous(tr, respCV, model="BM")
+respCV.WN<-fitContinuous(tr, respCV, model="white")
+respCV.EB<-fitContinuous(tr, respCV, model="EB") 
+
+aic.vals<-setNames(c(respCV.BM$opt$aicc, respCV.WN$opt$aicc, respCV.EB$opt$aicc),
+    c("BM","WN","EB"))
+aic.vals
+aic.w(aic.vals)
+
+#white noise is the winner!!!
+```
+
+```{r}
+resp.BM<-fitContinuous(tr, resp, model="BM")
+resp.WN<-fitContinuous(tr, resp, model="white")
+resp.EB<-fitContinuous(tr, resp, model="EB") 
+
+aic.vals<-setNames(c(resp.BM$opt$aicc, resp.WN$opt$aicc, resp.EB$opt$aicc),c("BM","WN","EB"))
+aic.vals
+aic.w(aic.vals)
+
+#white noise is the winner!!!
+```
+####### ultrametric produced essentially the same results so we can just use the original #######
+
+```{r}
+#write.tree(tr, file = "species_mito_ultra.tre")
+plot(tr)
+```
+
+######## Repeat with habitat tree #########
+
+```{r}
+#read in habitat trees
+mito.tr<-read.tree("species_mito.tre") 
+habA.tr<-read.tree("species_habitat_Aa.tre")
+habB.tr<-read.tree("species_habitat_B.tre")
+hab_poly.tr<-read.tree("species_habitat_poly.tre")
+
+plot(mito.tr)
+plot(habA.tr)
+plot(habB.tr)
+plot(hab_poly.tr)
+is.binary.tree(habA.tr)
+is.binary.tree(habB.tr)
+
+tr<-tmp[[1]] #this is from the above
+tr1 = habA.tr
+tr2 = habB.tr
+```
+
+######### Topology 1 #########
+######### the CV crap is nonsense outside of the phylo lm ########
+
+```{r}
+beh.BM<-fitContinuous(tr, beh, model="BM")
+beh.WN<-fitContinuous(tr, beh, model="white")
+beh.BM.hab<-fitContinuous(tr1, beh, model="BM") 
+
+lnL.vals<-setNames(c(beh.BM$opt$lnL, beh.WN$opt$lnL, beh.BM.hab$opt$lnL),
+    c("BM","WN","hab"))
+lnL.vals
+
+aic.vals<-setNames(c(beh.BM$opt$aicc, beh.WN$opt$aicc, beh.BM.hab$opt$aicc),
+    c("BM","WN","hab"))
+aic.vals
+aic.w(aic.vals)
+
+#BM is the winner!!!
+```
+
+```{r}
+resp.BM<-fitContinuous(tr, resp, model="BM")
+resp.WN<-fitContinuous(tr, resp, model="white")
+resp.BM.hab<-fitContinuous(tr1, resp, model="BM") 
+
+lnL.vals<-setNames(c(resp.BM$opt$lnL, resp.WN$opt$lnL, resp.BM.hab$opt$lnL),
+    c("BM","WN","hab"))
+lnL.vals
+
+aic.vals<-setNames(c(resp.BM$opt$aicc, resp.WN$opt$aicc, resp.BM.hab$opt$aicc),c("BM","WN","hab"))
+aic.vals
+aic.w(aic.vals)
+
+#WN is the winner!!!
+```
+
+######### Topology 2 #########
+
+```{r}
+beh.BM<-fitContinuous(tr, beh, model="BM")
+beh.WN<-fitContinuous(tr, beh, model="white")
+beh.BM.hab<-fitContinuous(tr2, beh, model="BM") 
+
+aic.vals<-setNames(c(beh.BM$opt$aicc, beh.WN$opt$aicc, beh.BM.hab$opt$aicc),
+    c("BM","WN","hab"))
+aic.vals
+aic.w(aic.vals)
+
+#BM is the winner!!!
+```
+
+```{r}
+resp.BM<-fitContinuous(tr, resp, model="BM")
+resp.WN<-fitContinuous(tr, resp, model="white")
+resp.BM.hab<-fitContinuous(tr2, resp, model="BM") 
+
+aic.vals<-setNames(c(resp.BM$opt$aicc, resp.WN$opt$aicc, resp.BM.hab$opt$aicc),c("BM","WN","hab"))
+aic.vals
+aic.w(aic.vals)
+
+#WN is the winner!!!
+```
+
+************************
+ANSs
+************************
+
+```{r fig.height=2, fig.width=3}
+#All rates different habitat
+pdf(file = "ANS_habitat.pdf", width = 3, height = 2)
+
+tree = tr
+
+this = read.csv("matched.csv", row.names=1, stringsAsFactors = TRUE)
+
+hab = setNames(this[,1],rownames(this))
+
+plotTree(tree, fsize=1, ftype="i", lwd=1, offset=1)
+
+cols = setNames(c("darkseagreen", "indianred1", "gray35"),levels(hab))
+
+tiplabels(pie=to.matrix(hab[tree$tip.label],
+    levels(hab)),piecol=cols,cex=1)
+
+fitARD = ace(hab, tree, model="ARD", type="discrete")
+
+nodelabels(node=1:tree$Nnode+Ntip(tree),
+    pie=fitARD$lik.anc,piecol=cols,cex=1)
+
+add.simmap.legend(colors=cols,prompt=FALSE,x=0.5,
+    y=5.5,fsize=0.5)
+
+dev.off()
+```
+
+
+```{r fig.height=2, fig.width=3}
+#All rates different behavior 
+pdf(file = "ANS_behavior.pdf", width = 3, height = 2)
+
+tree = tr
+
+this = read.csv("matched.csv", row.names=1, stringsAsFactors = TRUE)
+
+pheno = setNames(this[,2],rownames(this))
+
+plotTree(tree, fsize=1, ftype="i", lwd=1, offset=1)
+
+cols = setNames(c("gray35", "indianred1"),levels(pheno))
+
+tiplabels(pie=to.matrix(pheno[tree$tip.label],
+    levels(pheno)),piecol=cols,cex=1)
+
+fitARD = ace(pheno, tree, model="ARD", type="discrete")
+
+nodelabels(node=1:tree$Nnode+Ntip(tree),
+    pie=fitARD$lik.anc,piecol=cols,cex=1)
+
+add.simmap.legend(colors=cols,prompt=FALSE,x=0.5,
+    y=5.5,fsize=0.5)
+
+dev.off()
+```
+
+```{r fig.height=1, fig.width=2}
+#All rates different respiratory 
+pdf(file = "ANS_respiratory.pdf", width = 3, height = 2)
+
+tree = tr
+
+this = read.csv("matched.csv", row.names=1, stringsAsFactors = TRUE)
+
+pheno = setNames(this[,6],rownames(this))
+
+plotTree(tree, fsize=1, ftype="i", lwd=1, offset=1)
+
+cols = setNames(c("gray35", "indianred1"),levels(pheno))
+
+tiplabels(pie=to.matrix(pheno[tree$tip.label],
+    levels(pheno)),piecol=cols,cex=1)
+
+fitARD = ace(pheno, tree, model="ER", type="discrete")
+
+nodelabels(node=1:tree$Nnode+Ntip(tree),
+    pie=fitARD$lik.anc,piecol=cols,cex=1)
+
+add.simmap.legend(colors=cols,prompt=FALSE,x=0.5,
+    y=5.5,fsize=0.5)
+
+dev.off()
+```
+
+##### With contor colors #####
+
+```{r fig.height=2, fig.width=3}
+#All rates different behavior 
+pdf(file = "ANS_behavior_contMap.pdf", width = 3, height = 2)
+
+tree = tr
+
+this = read.csv("matched.csv", row.names=1, stringsAsFactors = TRUE)
+
+pheno = setNames(this[,2],rownames(this))
+
+this2 = read.csv("matched_beh.csv", row.names=1, stringsAsFactors = TRUE)
+
+dat = as.matrix(this2)[,1]
+
+fit<-fastAnc(tree,dat,vars=TRUE,CI=TRUE)
+
+n<-length(obj$cols)
+obj<-contMap(tree,dat,plot=FALSE)
+obj$cols[1:n]<-colorRampPalette(c("black","red"), space="Lab")(n)
+plot(obj, offset=1, lwd=3,
+    outline=FALSE,legend=FALSE)
+
+cols = setNames(c("gray35", "indianred1"),levels(pheno))
+
+fitARD = ace(pheno, tree, model="ER", type="discrete")
+
+nodelabels(node=1:tree$Nnode+Ntip(tree),
+    pie=fitARD$lik.anc,piecol=cols,cex=1)
+
+tiplabels(pie=to.matrix(pheno[tree$tip.label],
+    levels(pheno)),piecol=cols,cex=1)
+
+add.simmap.legend(colors=cols,prompt=FALSE,x=0.5,
+    y=5.5,fsize=0.5)
+
+dev.off()
+```
+
+```{r fig.height=2, fig.width=3}
+#All rates different repiratory 
+pdf(file = "ANS_resp_contMap.pdf", width = 3, height = 2)
+
+tree = tr
+
+this = read.csv("matched.csv", row.names=1, stringsAsFactors = TRUE)
+
+pheno = setNames(this[,6],rownames(this))
+
+this2 = read.csv("matched_resp.csv", row.names=1, stringsAsFactors = TRUE)
+
+dat = as.matrix(this2)[,1]
+
+fit<-fastAnc(tree,dat,vars=TRUE,CI=TRUE)
+
+n<-length(obj$cols)
+obj<-contMap(tree,dat,plot=FALSE)
+obj$cols[1:n]<-colorRampPalette(c("gray5","red"), space="Lab")(n)
+plot(obj, offset=1, lwd=3,
+    outline=FALSE,legend=FALSE)
+
+cols = setNames(c("gray35", "indianred1"),levels(pheno))
+
+fitARD = ace(pheno, tree, model="ER", type="discrete")
+
+nodelabels(node=1:tree$Nnode+Ntip(tree),
+    pie=fitARD$lik.anc,piecol=cols,cex=1)
+
+tiplabels(pie=to.matrix(pheno[tree$tip.label],
+    levels(pheno)),piecol=cols,cex=1)
+
+add.simmap.legend(colors=cols,prompt=FALSE,x=0.5,
+    y=5.5,fsize=0.5)
+
+dev.off()
+```
+
+```{r fig.height=2, fig.width=3}
+#All rates different behavior 
+pdf(file = "ANS_hab_beh_contMap.pdf", width = 3, height = 2)
+
+tree = tr
+
+this = read.csv("matched.csv", row.names=1, stringsAsFactors = TRUE)
+
+hab = setNames(this[,1],rownames(this))
+
+this2 = read.csv("matched_beh.csv", row.names=1, stringsAsFactors = TRUE)
+
+dat = as.matrix(this2)[,1]
+
+fit<-fastAnc(tree,dat,vars=TRUE,CI=TRUE)
+
+n<-length(obj$cols)
+obj<-contMap(tree,dat,plot=FALSE)
+obj$cols[1:n]<-colorRampPalette(c("gray5","red"), space="Lab")(n)
+plot(obj, offset=1, lwd=3,
+    outline=FALSE,legend=FALSE)
+
+cols = setNames(c("darkseagreen", "indianred1", "gray35"),levels(hab))
+
+fitARD = ace(hab, tree, model="ARD", type="discrete")
+
+nodelabels(node=1:tree$Nnode+Ntip(tree),
+    pie=fitARD$lik.anc,piecol=cols,cex=1)
+
+tiplabels(pie=to.matrix(hab[tree$tip.label],
+    levels(hab)),piecol=cols,cex=1)
+
+add.simmap.legend(colors=cols,prompt=FALSE,x=0.525,
+    y=5.5,fsize=0.5)
+
+add.color.bar(0.15, obj$cols,title="behavior",
+    lims=obj$lims,digits=2,prompt=FALSE,x=0.525,
+    y=4,lwd=3,fsize=0.5,subtitle="", outline=FALSE)
+
+dev.off()
+```
+
+```{r fig.height=2, fig.width=3}
+#All rates different behavior 
+pdf(file = "ANS_hab_resp_contMap.pdf", width = 3, height = 2)
+
+tree = tr
+
+this = read.csv("matched.csv", row.names=1, stringsAsFactors = TRUE)
+
+hab = setNames(this[,1],rownames(this))
+
+this2 = read.csv("matched_resp.csv", row.names=1, stringsAsFactors = TRUE)
+
+dat = as.matrix(this2)[,1]
+
+fit<-fastAnc(tree,dat,vars=TRUE,CI=TRUE)
+
+n<-length(obj$cols)
+obj<-contMap(tree,dat,plot=FALSE)
+obj$cols[1:n]<-colorRampPalette(c("gray5","red"), space="Lab")(n)
+plot(obj, offset=1, lwd=3,
+    outline=FALSE,legend=FALSE)
+
+cols = setNames(c("darkseagreen", "indianred1", "gray35"),levels(hab))
+
+fitARD = ace(hab, tree, model="ARD", type="discrete")
+
+nodelabels(node=1:tree$Nnode+Ntip(tree),
+    pie=fitARD$lik.anc,piecol=cols,cex=1)
+
+tiplabels(pie=to.matrix(hab[tree$tip.label],
+    levels(hab)),piecol=cols,cex=1)
+
+add.simmap.legend(colors=cols,prompt=FALSE,x=0.525,
+    y=5.5,fsize=0.5)
+
+add.color.bar(0.15, obj$cols,title="respiratory",
+    lims=obj$lims,digits=2,prompt=FALSE,x=0.525,
+    y=4,lwd=3,fsize=0.5,subtitle="", outline=FALSE)
+
+dev.off()
+```
+
+```{r fig.height=2, fig.width=3}
+#All rates different behavior 
+pdf(file = "ANS_resp_contMap.pdf", width = 3, height = 2)
+
+tree = tr
+
+this = read.csv("matched.csv", row.names=1, stringsAsFactors = TRUE)
+
+pheno = setNames(this[,6],rownames(this))
+
+this2 = read.csv("matched_resp.csv", row.names=1, stringsAsFactors = TRUE)
+
+dat = as.matrix(this2)[,1]
+
+fit<-fastAnc(tree,dat,vars=TRUE,CI=TRUE)
+
+
+obj<-contMap(tree,dat,plot=FALSE)
+n<-length(obj$cols)
+obj$cols[1:n]<-colorRampPalette(c("gray5","red"), space="Lab")(n)
+plot(obj, offset=1, lwd=3,
+    outline=FALSE,legend=FALSE)
+
+cols = setNames(c("gray5", "red"),levels(pheno))
+
+#fitARD = ace(hab, tree, model="ARD", type="discrete")
+
+#nodelabels(node=1:tree$Nnode+Ntip(tree), pie=fitARD$lik.anc,piecol=cols,cex=1)
+
+tiplabels(pie=to.matrix(pheno[tree$tip.label],
+    levels(pheno)),piecol=cols,cex=1)
+
+#add.simmap.legend(colors=cols,prompt=FALSE,x=0.525,y=5.5,fsize=0.5)
+
+add.color.bar(0.15, obj$cols,title="respiratory",
+    lims=obj$lims,digits=2,prompt=FALSE,x=0.525,
+    y=4,lwd=3,fsize=0.5,subtitle="", outline=FALSE)
+
+dev.off()
+```
+
+```{r fig.height=2, fig.width=3}
+#All rates different behavior 
+pdf(file = "ANS_beh_contMap.pdf", width = 3, height = 2)
+
+tree = tr
+
+this = read.csv("matched.csv", row.names=1, stringsAsFactors = TRUE)
+
+pheno = setNames(this[,2],rownames(this))
+
+this2 = read.csv("matched_beh.csv", row.names=1, stringsAsFactors = TRUE)
+
+dat = as.matrix(this2)[,1]
+
+fit<-fastAnc(tree,dat,vars=TRUE,CI=TRUE)
+
+
+obj<-contMap(tree,dat,plot=FALSE)
+n<-length(obj$cols)
+obj$cols[1:n]<-colorRampPalette(c("gray5","red"), space="Lab")(n)
+plot(obj, offset=1, lwd=3,
+    outline=FALSE,legend=FALSE)
+
+cols = setNames(c("gray5", "red"),levels(pheno))
+
+#fitARD = ace(hab, tree, model="ARD", type="discrete")
+
+#nodelabels(node=1:tree$Nnode+Ntip(tree), pie=fitARD$lik.anc,piecol=cols,cex=1)
+
+tiplabels(pie=to.matrix(pheno[tree$tip.label],
+    levels(pheno)),piecol=cols,cex=1)
+
+#add.simmap.legend(colors=cols,prompt=FALSE,x=0.525,y=5.5,fsize=0.5)
+
+add.color.bar(0.15, obj$cols,title="respiratory",
+    lims=obj$lims,digits=2,prompt=FALSE,x=0.525,
+    y=4,lwd=3,fsize=0.5,subtitle="", outline=FALSE)
+
+dev.off()
+```
+
+pheno = setNames(this[,3],rownames(this))
+
+plotTree(tree, fsize=1, ftype="i", lwd=1, offset=1)
+
+cols = setNames(c("gray35", "indianred1"),levels(pheno))
+
+tiplabels(pie=to.matrix(pheno[tree$tip.label],
+    levels(pheno)),piecol=cols,cex=1)
+
+fitARD = ace(pheno, tree, model="ARD", type="discrete")
+
+nodelabels(node=1:tree$Nnode+Ntip(tree),
+    pie=fitARD$lik.anc,piecol=cols,cex=1)
+
+add.simmap.legend(colors=cols,prompt=FALSE,x=0.5,
+    y=5.5,fsize=0.5)
+
+#dev.off()
+```
+
+************************
+Phylomorphos
+************************
+
+```{r fig.height=3, fig.width=3}
+#get tree ordered correctly to match data
+crag.tree = read.tree("Crangonyctidae_13.nex")  
+cragdat<-read.csv("matched.csv", header=T)
+#Matching tree and data with fish data
+matched<-make.treedata(crag.tree,cragdat)
+#matched
+crag.td <- reorder(matched, "postorder")
+#summary(td) 
+#phytools::phylosig(fish.td$phy, fish.td[['haploid']]) #measures phylogenetic signal 
+crag.td$phy
+```
+
+```{r fig.height=3, fig.width=3}
+#CVs
+tree=crag.td$phy
+cent=read.csv("phylomorph_CV.csv")
+X=as.matrix(cent)
+phylomorphospace(tree,X,xlab="Respiratory CV",ylab="Behavior CV", label=FALSE, colors=cols,lwd=2, xlim=c(0.05, 0.35), ylim=c(0.05, 0.3))
+
+  #or
+ 
+phylomorphospace(tree,X,xlab="Respiratory CV",ylab="Behavior CV",label="radial", colors=cols,lwd=2, xlim=c(0, 0.4), ylim=c(0.05, 0.3))
+
+  #or 
+ 
+phylomorphospace(tree,X,xlab="Respiratory CV",ylab="Behavior CV",label=FALSE, colors=cols,lwd=2, xlim=c(0, 0.4), ylim=c(0, 0.3))
+```
+
+
+```{r fig.height=3, fig.width=3}
+#phenotype
+tree=crag.td$phy
+cent=read.csv("phylomorph_phen.csv")
+X=as.matrix(cent)
+phylomorphospace(tree,X,xlab="Respiratory",ylab="Behavior",label="horizontal", colors=cols,lwd=2, xlim=c(0.3, 0.8), ylim=c(0.4, 0.85))
+
+  #or
+ 
+phylomorphospace(tree,X,xlab="Respiratory",ylab="Behavior",label="radial", colors=cols,lwd=3)
+
+  #or 
+ 
+phylomorphospace(tree,X,xlab="Respiratory",ylab="Behavior",label=FALSE, colors=cols,lwd=2, xlim=c(0.42, 0.7), ylim=c(0.4, .85))
+```
+
+```{r fig.height=3, fig.width=6}
+phylomorphospace(tree,X,xlab="Respiratory CV",ylab="Behavior CV",label=FALSE, colors=cols,lwd=2)
+```

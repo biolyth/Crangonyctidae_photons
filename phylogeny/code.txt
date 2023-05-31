@@ -1,0 +1,98 @@
+******************************************************************
+#### ModelTest-NG ####
+
+srun -t 0-01:00:00 --pty bash
+#or srun -p sandbox -c 1 -t 60 --pty /bin/bash
+
+module load lang/Anaconda3
+
+#conda create -n MC_conda
+
+source activate MC_conda
+
+#conda install -c bioconda clustalw
+
+#conda install -c bioconda mafft
+
+#conda install -c bioconda pastacd 
+
+#conda install -c bioconda modeltest-ng
+
+modeltest-ng -i Crangonyctidae_50.fasta -t ml
+
+### or ###
+
+sbatch run_modeltest.sh
+
+conda deactivate
+#### the above was run for the 46, 50, and 13 alignment ####
+******************************************************************
+
+
+
+
+
+******************************************************************
+#### MrBayes ####
+#need to navigate to file location before launching mb
+
+srun -t 0-01:00:00 --pty bash
+
+module load bio/MrBayes
+
+mb
+
+
+#### 50 (79) alignment ####
+
+execute Crangonyctidae_50.nex 
+charset cod.pos.1=1-469\3 
+charset cod.pos.2=2-469\3 
+charset cod.pos.3=3-469\3 
+
+lset applyto=(1) nst=2 rates=gamma
+lset applyto=(2) nst=6 rates=gamma
+lset applyto=(3) nst=2 rates=gamma
+#lset nst=2 rates=gamma ngammacat=4
+
+lset code=Metmt
+lset Ploidy=haploid
+
+mcmcp ngen=2000000 (0.027)
+mcmcp ngen=2000000 (0.0048)
+mcmcp ngen=2000000 (0.0043)
+mcmcp ngen=2000000 (0.0058)
+mcmcp ngen=2000000 (0.00665)
+
+mcmc
+
+
+#### 13 (34) alignment ####
+
+execute Crangonictidae_13.nex
+charset cod.pos.1=1-502\3 
+charset cod.pos.2=2-502\3 
+charset cod.pos.3=3-502\3 
+
+lset applyto=(1) nst=6 rates=equal
+lset applyto=(2) nst=6 rates=gamma
+lset applyto=(3) nst=1 rates=invgamma
+ 
+lset code=Metmt
+lset Ploidy=haploid
+
+mcmcp ngen=1000000 (0.014)
+mcmcp ngen=2000000 (0.00525)
+mcmcp ngen=2000000 (0.00456)
+mcmcp ngen=2000000 (0.00447)
+mcmcp ngen=2000000 (0.008826) Gammarus
+mcmcp ngen=2000000 (0.007) Crymostygius
+mcmcp ngen=2000000 (0.00486) Both
+
+
+mcmc
+
+sump
+sumt relburnin=yes burninfrac=0.25
+******************************************************************
+
